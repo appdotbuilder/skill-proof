@@ -1,70 +1,145 @@
+import { db } from '../db';
+import { skillsTable, userSkillsTable, usersTable } from '../db/schema';
 import { type Skill, type CreateSkillInput, type AddUserSkillInput, type UserSkill } from '../schema';
+import { eq, and, ilike, or } from 'drizzle-orm';
+import { SQL } from 'drizzle-orm';
 
 export async function getSkills(): Promise<Skill[]> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is fetching all available skills from the database
-  // for the skill selection screen, organized by categories.
-  return Promise.resolve([
-    {
-      id: 1,
-      name: 'Welding',
-      category: 'Technical',
-      description: 'Metal welding and fabrication skills',
-      icon: 'welding-icon.png',
-      is_active: true,
-      created_at: new Date()
-    },
-    {
-      id: 2,
-      name: 'AC Service',
-      category: 'Technical',
-      description: 'Air conditioning repair and maintenance',
-      icon: 'ac-service-icon.png',
-      is_active: true,
-      created_at: new Date()
-    }
-  ]);
+  try {
+    const results = await db.select()
+      .from(skillsTable)
+      .where(eq(skillsTable.is_active, true))
+      .orderBy(skillsTable.category, skillsTable.name)
+      .execute();
+
+    return results;
+  } catch (error) {
+    console.error('Failed to fetch skills:', error);
+    throw error;
+  }
 }
 
 export async function searchSkills(query: string): Promise<Skill[]> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is searching for skills based on user input
-  // to find skills not displayed in the predefined grid.
-  return Promise.resolve([]);
+  try {
+    if (!query.trim()) {
+      return [];
+    }
+
+    const searchTerm = `%${query.trim()}%`;
+    
+    const results = await db.select()
+      .from(skillsTable)
+      .where(
+        and(
+          eq(skillsTable.is_active, true),
+          or(
+            ilike(skillsTable.name, searchTerm),
+            ilike(skillsTable.category, searchTerm),
+            ilike(skillsTable.description, searchTerm)
+          )
+        )
+      )
+      .orderBy(skillsTable.name)
+      .execute();
+
+    return results;
+  } catch (error) {
+    console.error('Failed to search skills:', error);
+    throw error;
+  }
 }
 
 export async function createSkill(input: CreateSkillInput): Promise<Skill> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is creating a new skill entry in the database.
-  // This might be used for admin functionality or user-suggested skills.
-  return Promise.resolve({
-    id: 1,
-    name: input.name,
-    category: input.category,
-    description: input.description,
-    icon: input.icon,
-    is_active: true,
-    created_at: new Date()
-  });
+  try {
+    const results = await db.insert(skillsTable)
+      .values({
+        name: input.name,
+        category: input.category,
+        description: input.description,
+        icon: input.icon
+      })
+      .returning()
+      .execute();
+
+    return results[0];
+  } catch (error) {
+    console.error('Failed to create skill:', error);
+    throw error;
+  }
 }
 
 export async function addUserSkill(userId: number, input: AddUserSkillInput): Promise<UserSkill> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is associating a skill with a user when they
-  // select it during the skill selection process.
-  return Promise.resolve({
-    id: 1,
-    user_id: userId,
-    skill_id: input.skill_id,
-    is_verified: false,
-    verification_date: null,
-    created_at: new Date()
-  });
+  try {
+    // First verify that both user and skill exist
+    const userExists = await db.select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .execute();
+
+    if (userExists.length === 0) {
+      throw new Error(`User with id ${userId} not found`);
+    }
+
+    const skillExists = await db.select({ id: skillsTable.id })
+      .from(skillsTable)
+      .where(eq(skillsTable.id, input.skill_id))
+      .execute();
+
+    if (skillExists.length === 0) {
+      throw new Error(`Skill with id ${input.skill_id} not found`);
+    }
+
+    // Check if user already has this skill
+    const existingUserSkill = await db.select()
+      .from(userSkillsTable)
+      .where(
+        and(
+          eq(userSkillsTable.user_id, userId),
+          eq(userSkillsTable.skill_id, input.skill_id)
+        )
+      )
+      .execute();
+
+    if (existingUserSkill.length > 0) {
+      throw new Error('User already has this skill');
+    }
+
+    const results = await db.insert(userSkillsTable)
+      .values({
+        user_id: userId,
+        skill_id: input.skill_id
+      })
+      .returning()
+      .execute();
+
+    return results[0];
+  } catch (error) {
+    console.error('Failed to add user skill:', error);
+    throw error;
+  }
 }
 
 export async function getUserSkills(userId: number): Promise<UserSkill[]> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is retrieving all skills associated with a user,
-  // including their verification status for display in user profile.
-  return Promise.resolve([]);
+  try {
+    // Verify user exists
+    const userExists = await db.select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .execute();
+
+    if (userExists.length === 0) {
+      throw new Error(`User with id ${userId} not found`);
+    }
+
+    const results = await db.select()
+      .from(userSkillsTable)
+      .where(eq(userSkillsTable.user_id, userId))
+      .orderBy(userSkillsTable.created_at)
+      .execute();
+
+    return results;
+  } catch (error) {
+    console.error('Failed to fetch user skills:', error);
+    throw error;
+  }
 }
